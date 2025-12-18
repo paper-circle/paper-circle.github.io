@@ -1,10 +1,307 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <title></title>
-    <link rel="icon" href="happy.png">
-  </head>
-  <body>
-    yeah hello world
-  </body>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>小恐龍遊戲</title>
+  <style>
+    body {
+      margin: 0;
+      background: #eaeaea;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: sans-serif;
+    }
+    #game {
+      width: 600px;
+      height: 200px;
+      background: #fff;
+      border: 2px solid #000;
+      position: relative;
+      overflow: hidden;
+    }
+    #dino {
+      width: 40px;
+      height: 40px;
+      background: #333;
+      position: absolute;
+      bottom: 0;
+      left: 50px;
+      z-index: 2;
+      transition: height 0.1s;
+    }
+    .obstacle {
+      position: absolute;
+      right: -60px;
+      z-index: 1;
+    }
+    #scoreBoard {
+      position: absolute;
+      top: 5px;
+      left: 10px;
+      font-size: 16px;
+      font-weight: bold;
+      z-index: 3;
+    }
+    #difficultyMenu,
+    #gameOverText,
+    #finalScore {
+      position: absolute;
+      width: 100%;
+      text-align: center;
+      font-weight: bold;
+      z-index: 10;
+    }
+    #difficultyMenu {
+      top: 40px;
+      background: rgba(255,255,255,0.95);
+      height: 100%;
+      padding-top: 30px;
+    }
+    #gameOverText {
+      top: 70px;
+      font-size: 28px;
+      color: red;
+      display: none;
+    }
+    #finalScore {
+      top: 30px;
+      font-size: 22px;
+      display: none;
+    }
+    .btn {
+      margin: 10px;
+      padding: 8px 20px;
+      font-size: 18px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="game">
+    <div id="dino"></div>
+    <div id="scoreBoard"></div>
+
+    <div id="difficultyMenu">
+      <div>選擇難度</div>
+      <button class="btn" data-level="easy">簡單</button>
+      <button class="btn" data-level="normal">中等</button>
+      <button class="btn" data-level="hard">困難</button>
+      <div style="font-size:14px;margin-top:10px;">↑ 跳躍　↓ 蹲下</div>
+    </div>
+
+    <div id="finalScore"></div>
+    <div id="gameOverText">遊戲結束<br>Enter 重新開始</div>
+  </div>
+
+  <script>
+    const game = document.getElementById("game");
+    const dino = document.getElementById("dino");
+    const scoreBoard = document.getElementById("scoreBoard");
+    const finalScoreText = document.getElementById("finalScore");
+    const gameOverText = document.getElementById("gameOverText");
+    const difficultyMenu = document.getElementById("difficultyMenu");
+
+    let isStarted = false;
+    let isGameOver = false;
+    let isJumping = false;
+    let isDucking = false;
+    let dinoBottom = 0;
+    let score = 0;
+    let currentDifficulty = null;
+    let highScore = 0;
+
+    const difficultySettings = {
+      easy:   { baseSpeed: 2.4, speedGrow: 0.012, minGap: 340, jumpGrow: 0.010 },
+      normal: { baseSpeed: 3.0, speedGrow: 0.020, minGap: 260, jumpGrow: 0.012 },
+      hard:   { baseSpeed: 3.6, speedGrow: 0.030, minGap: 210, jumpGrow: 0.009 }
+    };
+
+    let BASE_SPEED = 3;
+    let SPEED_GROW = 0.02;
+    let MIN_GAP = 260;
+    let JUMP_GROW = 0.012;
+
+    function loadHighScore(level) {
+      return Number(localStorage.getItem(`dinoHighScore_${level}`)) || 0;
+    }
+
+    function saveHighScore(level, value) {
+      localStorage.setItem(`dinoHighScore_${level}`, value);
+    }
+
+    difficultyMenu.addEventListener("click", e => {
+      const level = e.target.dataset.level;
+      if (!level) return;
+
+      const setting = difficultySettings[level];
+      currentDifficulty = level;
+      BASE_SPEED = setting.baseSpeed;
+      SPEED_GROW = setting.speedGrow;
+      MIN_GAP = setting.minGap;
+      JUMP_GROW = setting.jumpGrow;
+
+      highScore = loadHighScore(level);
+      updateScoreBoard();
+
+      difficultyMenu.style.display = "none";
+      isStarted = true;
+    });
+
+    function updateScoreBoard() {
+      let color = "black";
+      if (currentDifficulty === "easy") color = "green";
+      if (currentDifficulty === "normal") color = "orange";
+      if (currentDifficulty === "hard") color = "red";
+
+      scoreBoard.innerHTML = `難度：<span style="color:${color}">${currentDifficulty}</span><br>分數：${score}<br>最高分：${highScore}`;
+    }
+
+    document.addEventListener("keydown", e => {
+      if (!isStarted) return;
+      if (isGameOver && e.code === "Enter") location.reload();
+      if (isGameOver) return;
+
+      if (e.code === "ArrowUp" && !isJumping) jump();
+      if (e.code === "ArrowDown") duck(true);
+    });
+
+    document.addEventListener("keyup", e => {
+      if (e.code === "ArrowDown") duck(false);
+    });
+
+    function jump() {
+      isJumping = true;
+      const jumpSpeed = 5 + score * JUMP_GROW;
+
+      const up = setInterval(() => {
+        if (dinoBottom >= 90) {
+          clearInterval(up);
+          const down = setInterval(() => {
+            dinoBottom -= jumpSpeed;
+            if (dinoBottom <= 0) {
+              dinoBottom = 0;
+              clearInterval(down);
+              isJumping = false;
+            }
+            dino.style.bottom = dinoBottom + "px";
+          }, 20);
+        } else {
+          dinoBottom += jumpSpeed;
+          dino.style.bottom = dinoBottom + "px";
+        }
+      }, 20);
+    }
+
+    function duck(state) {
+      isDucking = state;
+      dino.style.height = state ? "25px" : "40px";
+    }
+
+    const obstacleTypes = [
+      { width: 20, height: 40, bottom: 0, color: "#067a00", require: "jump", speedMul: 1 },
+      { width: 30, height: 30, bottom: 0, color: "#777", require: "jump", speedMul: 1 }
+    ];
+
+    const hardFlyingObstacle = {
+      width: 34,
+      height: 22,
+      bottom: 32, // 會依型態調整
+      color: "#000",
+      require: "duck", // 會依高度改成 duck 或 jump
+      speedMul: 1.4
+    };
+
+    const obstacles = [];
+
+    function createObstacle(type, left) {
+      const el = document.createElement("div");
+      el.className = "obstacle";
+      el.style.width = type.width + "px";
+      el.style.height = type.height + "px";
+      el.style.bottom = type.bottom + "px";
+      el.style.background = type.color;
+      game.appendChild(el);
+      obstacles.push({ el, ...type, left, passed: false });
+    }
+
+    for (let i = 0; i < 2; i++) {
+      createObstacle(obstacleTypes[0], 600 + i * 300);
+    }
+
+    setInterval(() => {
+      if (!isStarted || isGameOver) return;
+
+      const speed = BASE_SPEED + score * SPEED_GROW;
+
+      obstacles.forEach(o => {
+        o.left -= speed * o.speedMul;
+        // 使用 left 定位，避免中途瞬間出現
+        o.el.style.left = o.left + "px";
+
+        if (o.left < 50 && !o.passed) {
+          score++;
+          o.passed = true;
+          updateScoreBoard();
+        }
+
+        if (o.left < -80) {
+          const farthest = Math.max(...obstacles.map(x => x.left));
+          let t;
+
+          if (currentDifficulty === "hard" && Math.random() < 0.35) {
+            t = { ...hardFlyingObstacle };
+
+            // 🦅 忽高忽低的鳥（永遠有解）
+            // 低飛：必須蹲（安全區間）
+            // 高飛：必須跳（安全區間）
+            if (Math.random() < 0.5) {
+              // 低飛鳥
+              t.bottom = Math.max(28, 34 - Math.floor(score / 20));
+              t.require = "duck";
+            } else {
+              // 高飛鳥
+              t.bottom = 70; // 固定高空，確保可跳過
+              t.require = "jump";
+            }
+          } else {
+            t = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
+          }
+
+          Object.assign(o, t);
+          o.el.style.width = t.width + "px";
+          o.el.style.height = t.height + "px";
+          o.el.style.bottom = t.bottom + "px";
+          o.el.style.background = t.color;
+          o.left = farthest + MIN_GAP + Math.random() * 200;
+          o.passed = false;
+        }
+
+        const hitX = o.left < 90 && o.left > 50;
+        let hit = false;
+        if (hitX) {
+          if (o.require === "jump") {
+            // 地面障礙：只看是否跳得夠高
+            if (dinoBottom < o.height) hit = true;
+          }
+          if (o.require === "duck") {
+            // 飛行障礙：只有在「沒有蹲下」時才會撞到
+            if (!isDucking) hit = true;
+          }
+        }
+
+        if (hit) {
+          isGameOver = true;
+          highScore = Math.max(highScore, score);
+          saveHighScore(currentDifficulty, highScore);
+          finalScoreText.style.display = "block";
+          finalScoreText.textContent = `最終分數：${score}`;
+          gameOverText.style.display = "block";
+        }
+      });
+    }, 20);
+  </script>
+</body>
 </html>
